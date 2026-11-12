@@ -1,0 +1,58 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # create tags and releases
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  VERSION_PREFIX: "1.0" # tags are v<prefix>.<run number>, e.g. v1.0.7
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Compute version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = "$env:VERSION_PREFIX.$env:GITHUB_RUN_NUMBER"
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "tag=v$v"    >> $env:GITHUB_OUTPUT
+
+      - name: Build
+        shell: pwsh
+        run: ./build.ps1 -Version ${{ steps.ver.outputs.version }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SommerfeldAcademy-${{ steps.ver.outputs.tag }}
+          path: dist/SommerfeldAcademy.exe
+
+      - name: Create tag and release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ steps.ver.outputs.tag }}"
+          gh release create $tag dist/SommerfeldAcademy.exe `
+            --target $env:GITHUB_SHA `
+            --title "Sommerfeld Academy $tag" `
+            --generate-notes `
+            --latest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
